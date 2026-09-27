@@ -16,6 +16,38 @@ local CASTBAR_TYPES = {
 }
 local CONFIGURABLE_CASTBAR_TYPES = { player = true, target = true }
 
+local function ClearSafeZone(bar)
+    if not bar.SafeZone then return end
+    bar.SafeZone:Hide()
+    bar.SafeZone:SetWidth(0)
+end
+
+local function IsPositivePublicNumber(value)
+    return (not canaccessvalue or canaccessvalue(value)) and type(value) == "number"
+        and value > 0 and value < math.huge
+end
+
+local function UpdateSafeZone(frame)
+    local bar = frame.Castbar
+    if not bar or not bar.SafeZone then return end
+    ClearSafeZone(bar)
+    local state = bar.MIUF_CastState
+    if not state.active or state.mode ~= "cast" or state.unit ~= "player"
+        or ns.GetFrameDisplayUnit(frame) ~= "player" or not frame.CastbarHolder:IsVisible()
+        or not GetNetStats or not UnitCastingDuration then return end
+    local duration = UnitCastingDuration("player")
+    if (canaccessvalue and not canaccessvalue(duration)) or not duration
+        or not duration.GetTotalDuration then return end
+    local total = duration:GetTotalDuration()
+    local _, _, _, latency = GetNetStats()
+    local width = bar:GetWidth()
+    if not IsPositivePublicNumber(total) or not IsPositivePublicNumber(latency)
+        or not IsPositivePublicNumber(width) then return end
+    -- World latency is in milliseconds; duration objects report seconds.
+    bar.SafeZone:SetWidth(width * math.min(1, (latency / 1000) / total))
+    bar.SafeZone:Show()
+end
+
 local function HideStageSeparators(bar)
     for _, separator in ipairs(bar.StageSeparators) do
         separator.fraction = nil
@@ -90,14 +122,15 @@ local function SetInterruptibleVisual(bar, notInterruptible)
         if notInterruptible then
             bar:SetStatusBarColor(0.45, 0.45, 0.45, 1)
         else
-            bar:SetStatusBarColor(0.95, 0.55, 0.12, 1)
+            bar:SetStatusBarColor(1.00, 0.82, 0.25, 1)
         end
     else
-        bar:SetStatusBarColor(0.95, 0.55, 0.12, 1)
+        bar:SetStatusBarColor(1.00, 0.82, 0.25, 1)
     end
 end
 
 local function ClearActiveVisuals(bar)
+    ClearSafeZone(bar)
     HideStageSeparators(bar)
     bar.Time.binding:SetToDefaults()
     bar.Time.binding:SetEnabled(false)
@@ -131,7 +164,7 @@ local function ShowCastbarPreview(frame)
     holder:SetParent(UIParent)
     bar:SetMinMaxValues(0, 1)
     bar:SetValue(0.7)
-    bar:SetStatusBarColor(0.95, 0.55, 0.12, 1)
+    bar:SetStatusBarColor(1.00, 0.82, 0.25, 1)
     bar.Icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
     bar.Text:SetText("Cast Bar Preview")
     bar.Time:SetText("1.5s")
@@ -219,6 +252,7 @@ local function RefreshCastbar(frame)
     bar:Show()
     holder:Show()
     binding:SetEnabled(holder:IsVisible())
+    UpdateSafeZone(frame)
 end
 
 ns.UpdateFrameCastbar = RefreshCastbar
@@ -380,12 +414,25 @@ local function CreateCastbar(frame)
     bar.MIUF_CastState = {generation=0}
     bar:SetPoint("TOPLEFT", 19, -1)
     bar:SetPoint("BOTTOMRIGHT", -1, 1)
-    bar:SetStatusBarTexture(ns.GetTexturePath and ns.GetTexturePath("flat") or FLAT)
-    bar:SetStatusBarColor(0.95, 0.55, 0.12, 1)
+    bar:SetStatusBarTexture(ns.GetTexturePath and ns.GetTexturePath("smooth") or FLAT)
+    bar:SetStatusBarColor(1.00, 0.82, 0.25, 1)
     bar.StageSeparators = {}
     -- Reserve the common case; grow once and reuse if Retail reports more.
     for i = 1, 4 do CreateStageSeparator(bar) end
     bar:SetScript("OnSizeChanged", LayoutStageSeparators)
+
+    if frame.MIUF_UnitType == "player" then
+        local safeZone = bar:CreateTexture(nil, "OVERLAY", nil, -2)
+        safeZone:SetColorTexture(0.85, 0.70, 1.00, 0.45)
+        safeZone:SetPoint("TOPRIGHT", bar, "TOPRIGHT", 0, 0)
+        safeZone:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 0, 0)
+        bar.SafeZone = safeZone
+        ClearSafeZone(bar)
+        bar:SetScript("OnSizeChanged", function(self)
+            LayoutStageSeparators(self)
+            UpdateSafeZone(frame)
+        end)
+    end
 
     local background = bar:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints(bar)
@@ -432,6 +479,7 @@ local function CreateCastbar(frame)
     bar.Text = text
 
     holder:SetScript("OnHide", function()
+        ClearSafeZone(bar)
         HideStageSeparators(bar)
         timer.binding:SetEnabled(false)
         if bar.MIUF_CastState.terminal then ClearCastbar(frame) end
@@ -441,6 +489,7 @@ local function CreateCastbar(frame)
             timer.binding:SetEnabled(true)
             timer.binding:UpdateFontString()
             UpdateStageSeparators(frame)
+            UpdateSafeZone(frame)
         end
     end)
 

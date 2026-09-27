@@ -14,6 +14,8 @@ end
 function methods:GetFrameLevel() return 1 end
 function methods:SetHeight(h) self.height=h end
 function methods:SetWidth(w) self.width=w end
+function methods:GetWidth() return self.width or 200 end
+function methods:SetColorTexture(...) self.rgba={...} end
 function methods:GetParent() return self.parent end
 function methods:SetParent(parent) self.parent=parent end
 function methods:SetValue(value) self.value=value end
@@ -87,6 +89,7 @@ function UnitCastingDuration(unit) return current[unit].duration end
 UnitChannelDuration=UnitCastingDuration
 function UnitEmpoweredChannelDuration(unit, hold) assert(hold==true); return current[unit].duration end
 local ns={frames={}}
+assert(loadfile("Media.lua"))("MythIncUnitFrames", ns)
 function ns.GetCastbarLayout()
     return {enabled=true,width=0,height=18,xOffset=0,yOffset=-3}
 end
@@ -105,11 +108,14 @@ local function clear(frame)
     assert(not frame.CastbarHolder.shown and not bar.Time.binding.enabled)
     assert(bar.Time.binding.duration==nil and bar.Time.text=="" and bar.Text.text=="")
     assert(bar.Icon.texture==nil and bar.Shield.alpha==0 and not bar.Spark.shown)
+    if bar.SafeZone then assert(not bar.SafeZone.shown and bar.SafeZone.width==0) end
 end
 for unit, frame in pairs(ns.frames) do
     if frame.Castbar then
         clear(frame)
         local bar=frame.Castbar
+        assert((bar.SafeZone~=nil)==(unit=="player"))
+        assert(bar.fill.texture==ns.GetTexturePath("smooth"))
         assert(frame.CastbarHolder.height==18 and bar.Icon.width==16 and bar.Icon.height==16)
         assert(bar.Shield.atlas=="ui-castingbar-shield" and bar.Shield.useAtlasSize==false)
         assert(bar.LockText==nil and bar.Spark.points[1][2]==bar:GetStatusBarTexture())
@@ -120,14 +126,14 @@ for unit, frame in pairs(ns.frames) do
             assert(bar.Time.binding.duration==secret and bar.Time.binding.enabled)
             assert(bar.Time.text=="native remaining time" and bar.Spark.shown)
             assert(bar.Shield.alphaInput==secret and bar.Shield.alphaYes==1 and bar.Shield.alphaNo==0)
-            assert(bar.color[1]==0.95 and bar.duration==secret)
+            assert(bar.color[1]==1.00 and bar.duration==secret)
             assert(bar.direction==(mode=="channel" and 2 or 1))
             current[unit].lock=true
             frame.MIUF_CastbarEvents.scripts.OnEvent(nil,"UNIT_SPELLCAST_NOT_INTERRUPTIBLE",unit)
             assert(bar.Shield.alphaInput==true and bar.color[1]==0.45)
             current[unit].lock=false; current[unit].display=nil
             frame.MIUF_CastbarEvents.scripts.OnEvent(nil,"UNIT_SPELLCAST_INTERRUPTIBLE",unit)
-            assert(bar.Shield.alphaInput==false and bar.color[1]==0.95 and bar.Text.text=="Spell")
+            assert(bar.Shield.alphaInput==false and bar.color[1]==1.00 and bar.Text.text=="Spell")
             frame.CastbarHolder:Hide(); assert(not bar.Time.binding.enabled)
             frame.CastbarHolder:Show(); assert(bar.Time.binding.enabled)
             current[unit]=nil
@@ -156,6 +162,72 @@ assert(player.Castbar.Icon.texture==456 and player.Castbar.Text.text=="Vehicle")
 player.displayUnit=nil; ns.UpdateFrameCastbar(player); clear(player)
 ns.RefreshCastbars()
 assert(created==count and bindings==8, "no allocations while refreshing")
+
+-- Player latency uses world milliseconds / total seconds, never remaining time.
+local bar=player.Castbar
+local zone=bar.SafeZone
+local total, latency=2,150
+local duration={GetTotalDuration=function() return total end}
+function GetNetStats() return 0,0,999,latency end
+local function start()
+    current.player={mode="cast",name="Latency",texture=123,lock=false,duration=duration,id=42}
+    player.MIUF_CastbarEvents.scripts.OnEvent(nil,"UNIT_SPELLCAST_START","player")
+end
+local function hidden() assert(not zone.shown and zone.width==0) end
+start()
+assert(zone.shown and zone.width==15)
+assert(zone.points[1][1]=="TOPRIGHT" and zone.points[2][1]=="BOTTOMRIGHT")
+assert(zone.rgba[1]==0.85 and zone.rgba[2]==0.70 and zone.rgba[3]==1.00 and zone.rgba[4]==0.45)
+assert(bar.color[1]==1 and bar.color[2]==0.82 and bar.color[3]==0.25)
+bar:SetWidth(400); bar.scripts.OnSizeChanged(bar)
+assert(zone.width==30)
+total=4
+player.MIUF_CastbarEvents.scripts.OnEvent(nil,"UNIT_SPELLCAST_DELAYED","player")
+assert(zone.width==15)
+latency=8000; ns.UpdateFrameCastbar(player); assert(zone.width==400)
+for _, invalid in ipairs({0,-1,math.huge,-math.huge,0/0,"bad",false,secret}) do
+    total=invalid; latency=150; ns.UpdateFrameCastbar(player); hidden()
+    total=2; latency=invalid; ns.UpdateFrameCastbar(player); hidden()
+end
+total=nil; latency=150; ns.UpdateFrameCastbar(player); hidden()
+total=2; latency=nil; ns.UpdateFrameCastbar(player); hidden()
+latency=150
+local netStats=GetNetStats
+GetNetStats=nil; ns.UpdateFrameCastbar(player); hidden(); GetNetStats=netStats
+current.player.duration={}; ns.UpdateFrameCastbar(player); hidden()
+current.player.duration=nil; ns.UpdateFrameCastbar(player); hidden()
+start(); assert(zone.shown)
+player.CastbarHolder:Hide(); hidden()
+player.CastbarHolder:Show(); assert(zone.shown and zone.width==30)
+for _, mode in ipairs({"channel","empower"}) do
+    current.player.mode=mode; ns.UpdateFrameCastbar(player); hidden()
+    start(); assert(zone.shown)
+end
+player.displayUnit="vehicle"; current.vehicle=current.player
+ns.UpdateFrameCastbar(player); hidden()
+player.displayUnit=nil; current.vehicle=nil
+for _, event in ipairs({"UNIT_SPELLCAST_STOP","UNIT_SPELLCAST_FAILED","UNIT_SPELLCAST_INTERRUPTED"}) do
+    start(); assert(zone.shown)
+    current.player=nil
+    if event=="UNIT_SPELLCAST_INTERRUPTED" then
+        player.MIUF_CastbarEvents.scripts.OnEvent(nil,event,"player",nil,nil,nil,42)
+    else
+        player.MIUF_CastbarEvents.scripts.OnEvent(nil,event,"player",nil,nil,42)
+    end
+    hidden()
+    if event~="UNIT_SPELLCAST_STOP" then
+        assert(bar.Text.text==(event=="UNIT_SPELLCAST_FAILED" and "Failed" or "Interrupted"))
+        timers[#timers](); hidden()
+    end
+end
+start(); missing.player=true; ns.UpdateFrameCastbar(player); hidden(); missing.player=nil
+start(); ns.ApplyFrameCastbarSettings(player,{enabled=false,width=0,height=18,xOffset=0,yOffset=-3}); hidden()
+current.player=nil
+ns.ApplyFrameCastbarSettings(player,ns.GetCastbarLayout())
+ns.SetCastbarPreview("player"); hidden(); ns.ClearCastbarPreview()
+bar:SetWidth(200)
+assert(created==count and bindings==8, "SafeZone must reuse its texture")
+print("PASS: Player SafeZone ownership, latency, resize, clamp, invalid/secret inputs and lifecycle")
 
 -- Static configuration presentation never invents a real cast or allocates a
 -- parallel bar. Hidden/missing owners retain their existing geometry anchors.
