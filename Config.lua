@@ -907,7 +907,7 @@ local function CreateFrameLayoutControls(parent)
     end)
     local specs={
         {"width","Width",100,600,18,-46}, {"height","Height",18,40,234,-46},
-        {"xOffset","X Offset",-300,300,18,-112}, {"yOffset","Y Offset",-300,300,234,-112},
+        {"xOffset","X Offset",-1000,1000,18,-112}, {"yOffset","Y Offset",-1000,1000,234,-112},
     }
     for _, spec in ipairs(specs) do
         local key=spec[1]

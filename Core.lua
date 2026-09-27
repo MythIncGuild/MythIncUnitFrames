@@ -383,8 +383,8 @@ function ns.NormalizeCastbarLayout(values)
         -- Zero means inherited width; it is never used as a pixel dimension.
         width=width and width~=0 and CastbarNumber(width,0,100,600) or 0,
         height=CastbarNumber(values.height,18,18,40),
-        xOffset=CastbarNumber(values.xOffset,0,-300,300),
-        yOffset=CastbarNumber(values.yOffset,-3,-300,300),
+        xOffset=CastbarNumber(values.xOffset,0,-1000,1000),
+        yOffset=CastbarNumber(values.yOffset,-3,-1000,1000),
     }
 end
 
