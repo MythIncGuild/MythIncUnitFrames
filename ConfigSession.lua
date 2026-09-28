@@ -316,6 +316,7 @@ end
 -- Stop only the requested scope for the Raid-only control, or all movers for
 -- general Revert. Late mouse releases must not stage discarded coordinates.
 function ns.StopConfigurationMovers(unitType)
+    if ns.CancelPrecisionPositionDrag then ns.CancelPrecisionPositionDrag() end
     local combat=InCombatLockdown()
     local function StopMover(owner,mover)
         if not mover then return end

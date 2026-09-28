@@ -613,16 +613,18 @@ local function CreateMover(frame,labelText,positionKey)
         local group=frame.MIUF_UnitType=="party" or frame.MIUF_UnitType=="boss"
         dragTarget=group and not frame:IsShown() and mover or frame
         dragTarget:StartMoving()
+        if ns.BeginPrecisionPositionDrag then ns.BeginPrecisionPositionDrag(frame.MIUF_UnitType,mover,dragTarget) end
     end)
     mover:SetScript("OnDragStop",function()
         dragTarget:StopMovingOrSizing()
-        if mover.MIUF_RevertedDrag then dragTarget=frame; return end
+        if mover.MIUF_RevertedDrag then dragTarget=frame; if ns.EndPrecisionPositionDrag then ns.EndPrecisionPositionDrag(mover) end; return end
         if not InCombatLockdown() then
             StageMoverPosition(dragTarget,positionKey)
             if ns.ApplyGroupLayout then ns.ApplyGroupLayout(frame.MIUF_UnitType) end
         end
         if dragTarget==mover then mover:ClearAllPoints(); mover:SetAllPoints(frame) end
         dragTarget=frame
+        if ns.EndPrecisionPositionDrag then ns.EndPrecisionPositionDrag(mover) end
     end)
     local resize=ns.CreateMoverResizeHandle(mover)
     resize:SetScript("OnMouseDown",function(_,button)
@@ -643,6 +645,7 @@ local function CreateMover(frame,labelText,positionKey)
         ns.PreviewFrameType(s.unitType,settings); if ns.RefreshConfig then ns.RefreshConfig() end
     end)
     mover.MIUF_ResizeHandle=resize; mover:Hide(); frame.MIUF_Mover=mover
+    if ns.RegisterPrecisionMover then ns.RegisterPrecisionMover(mover,frame.MIUF_UnitType) end
 end
 
 local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,storageKey)

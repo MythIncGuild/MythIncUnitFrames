@@ -62,6 +62,11 @@ local GROUP_ORIENTATION_ORDER = { "VERTICAL", "HORIZONTAL" }
 
 local selectedType, selectedAura, selectedPage = "player", "buffs", "frames"
 local config, framesPage, aurasPage, profilesPage, trackedBuffWindow
+function ns.IsPrecisionPositionContext()
+    return not closing and not (config and config:IsShown())
+        and not (trackedBuffWindow and trackedBuffWindow:IsShown())
+        and (collapsed or not ns.ConfigSessionIsActive())
+end
 local widthSlider, heightSlider, powerSlider, fontSlider, portraitSlider, bgSlider, borderSlider
 local nameXSlider, nameYSlider, healthXSlider, healthYSlider
 local roleXSlider, roleYSlider, roleSizeSlider, raidXSlider, raidYSlider, raidSizeSlider
@@ -672,6 +677,7 @@ local function RefreshFramesPage()
 end
 
 function ns.RefreshConfig()
+    if ns.RefreshPrecisionPosition then ns.RefreshPrecisionPosition() end
     if not config or not config:IsShown() then return end
     refreshing=true; MarkPending(); CopyWorking()
     RefreshFramesNavigation()
@@ -766,6 +772,8 @@ local function CreateShell()
     FitConfigToScreen()
     config:SetScript("OnDragStart",config.StartMoving); config:SetScript("OnDragStop",config.StopMovingOrSizing); config:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); Skin.Panel(config,Skin.background)
     config:SetScript("OnHide",function() if not internalHide then ns.CloseConfig() end end)
+    config:HookScript("OnShow",function() if ns.RefreshPrecisionPosition then ns.RefreshPrecisionPosition() end end)
+    config:HookScript("OnHide",function() if ns.RefreshPrecisionPosition then ns.RefreshPrecisionPosition() end end)
     local icon=config:CreateTexture(nil,"ARTWORK"); icon:SetSize(96,96); icon:SetPoint("TOPLEFT",18,-10)
     icon:SetTexture("Interface\\AddOns\\"..ADDON_NAME.."\\Media\\Artwork\\MIUF_Icon_128.png")
     local title=config:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,17,"OUTLINE"); title:SetTextColor(unpack(Skin.text)); title:SetPoint("TOPLEFT",120,-16); title:SetText("M Y T H Inc Unit Frames")
@@ -1338,6 +1346,7 @@ function ns.CollapseConfig()
     end
     collapsed=true; internalHide=true; config:Hide(); internalHide=false
     collapsedBar:Show()
+    if ns.RefreshPrecisionPosition then ns.RefreshPrecisionPosition() end
 end
 
 function ns.ToggleConfig()
@@ -1363,6 +1372,7 @@ lockMoversButton:SetClampedToScreen(true)
 lockMoversButton:Hide()
 
 function ns.UpdateLockMoversButton()
+    if ns.RefreshPrecisionPosition then ns.RefreshPrecisionPosition() end
     local frameLocked,auraLocked=ns.AreFrameMoversLocked(),ns.AreAuraMoversLocked()
     lockMoversButton:SetShown(not InCombatLockdown() and (not frameLocked or not auraLocked))
     if frameLockButton then frameLockButton:SetText(frameLocked and "Unlock Frames" or "Lock Frames") end

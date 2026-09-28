@@ -11,6 +11,8 @@ function methods:GetFrameLevel() return 1 end
 function methods:CreateFontString() return object() end
 function methods:SetScript(name,callback) self.scripts[name]=callback end
 function methods:IsShown() return self.shown end
+function methods:StopMovingOrSizing() self.started=false end
+function methods:GetPoint() return "RIGHT",UIParent,"RIGHT",81,-42 end
 function methods:Hide() self.shown=false end
 function methods:StartMoving()
     assert(self.dontSavePosition==true,"drag target still uses client position persistence")
@@ -32,18 +34,30 @@ local function findUpvalue(fn,wanted,seen)
     end
 end
 local createMover=assert(findUpvalue(ns.SpawnAllFrames,"CreateMover"))
+local observedTarget,ended,stagedKey,stagedPosition,registered
+function ns.RegisterPrecisionMover(mover,kind) registered={mover,kind} end
+function ns.BeginPrecisionPositionDrag(_,_,target) observedTarget=target end
+function ns.EndPrecisionPositionDrag(mover) ended=mover end
+function ns.ConfigSessionStagePosition(key,p) stagedKey,stagedPosition=key,p end
 for _,kind in ipairs({"player","target","focus","pet","targettarget","party","boss"}) do
     local frame=object(); frame.MIUF_UnitType=kind
     createMover(frame,kind,kind)
     assert(frame.dontSavePosition==true)
     local mover=frame.MIUF_Mover
+    assert(registered[1]==mover and registered[2]==kind)
     assert(not mover.MIUF_ResizeHandle.dontSavePosition,"resize handle does not own a position")
     mover.scripts.OnDragStart()
     assert(frame.started and not mover.started)
+    assert(observedTarget==frame)
+    mover.scripts.OnDragStop()
+    assert(ended==mover and stagedKey==kind and stagedPosition.x==81 and stagedPosition.y==-42)
     if kind=="party" or kind=="boss" then
         frame.started=false; frame.shown=false
         mover.scripts.OnDragStart()
         assert(mover.started and not frame.started,"hidden group must move its independent mover")
+        assert(observedTarget==mover)
+        mover.scripts.OnDragStop()
+        assert(ended==mover and stagedKey==kind)
     else
         assert(not mover.dontSavePosition,"solo overlay is not the drag target")
     end

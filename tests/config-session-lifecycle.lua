@@ -85,20 +85,33 @@ print("PASS: session Close, all pending stores, Apply, Revert, combat deferral")
 local file=assert(io.open("Config.lua","r"))
 local source=file:read("*a"); file:close()
 local transitions=assert(source:match("(function ns.RestoreConfig%(%)%s.-)\nfunction ns.ToggleConfig"))
+local precisionContext=assert(source:match("(function ns.IsPrecisionPositionContext%(%)%s.-)\nend")).."\nend\n"
 local factory=assert(loadstring([[
     local ns,config,collapsedBar,trackedBuffWindow=...
     local collapsed,internalHide=false,false
     config.onHide=function() assert(internalHide,"Collapse entered Close") end
-]]..transitions..[[
+]]..precisionContext..transitions..[[
     return function() return collapsed end
 ]]))
 local window={shown=true,unit="player",tab="frames",category="Auras",scroll=73}
 function window:Hide() self.shown=false; self.onHide() end
 function window:Show() self.shown=true end
+function window:IsShown() return self.shown end
+local tracked={shown=false}
+function tracked:IsShown() return self.shown end
+function tracked:Hide() self.shown=false end
 local bar={}
 function bar:Show() self.shown=true end
 function bar:Hide() self.shown=false end
-local isCollapsed=factory(ns,window,bar)
+local isCollapsed=factory(ns,window,bar,tracked)
+assert(not ns.IsPrecisionPositionContext())
+-- Internal transition to the tracked-buff window is not positioning context,
+-- including the interval after main Hide but before subwindow Show.
+window.shown=false
+assert(not ns.IsPrecisionPositionContext())
+tracked.shown=true
+assert(not ns.IsPrecisionPositionContext())
+tracked.shown=false; window.shown=true
 local castbarActive,auraActive=true,true
 function ns.ClearCastbarPreview() castbarActive=false end
 function ns.ClearAuraMoverPreview() auraActive=false end
@@ -107,6 +120,7 @@ ns.ConfigSessionStageAura("party","buffs",{xOffset=71,yOffset=-29})
 ns.ConfigSessionStageAura("raid","debuffs",{xOffset=-43,yOffset=82})
 ns.CollapseConfig()
 assert(isCollapsed() and not window.shown and bar.shown)
+assert(ns.IsPrecisionPositionContext())
 assert(ns.ConfigSessionIsActive() and ns.ConfigSessionIsDirty())
 assert(ns.ConfigSessionGetFrame("player").size.width==620)
 assert(castbarActive and auraActive)
@@ -114,6 +128,7 @@ assert(ns.ConfigSessionGetAura("party","buffs").xOffset==71)
 assert(ns.ConfigSessionGetAura("raid","debuffs").yOffset==82)
 ns.RestoreConfig()
 assert(not isCollapsed() and window.shown and not bar.shown)
+assert(not ns.IsPrecisionPositionContext())
 assert(window.unit=="player" and window.tab=="frames" and window.category=="Auras" and window.scroll==73)
 assert(ns.ConfigSessionGetFrame("player").size.width==620)
 assert(castbarActive and auraActive)

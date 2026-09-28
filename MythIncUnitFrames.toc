@@ -15,4 +15,5 @@ Auras.lua
 Groups.lua
 ConfigSession.lua
 Config.lua
+PrecisionPosition.lua
 BlizzardFrames.lua
