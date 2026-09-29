@@ -420,7 +420,7 @@ local function CreateDispelHighlight(frame)
 
             local highlightLayer = CreateFrame("Frame", nil, button)
             highlightLayer:SetAllPoints(frame)
-            highlightLayer:SetAlpha(0.25)
+            highlightLayer:SetAlpha(0.40)
 
             local highlight = highlightLayer:CreateTexture(nil, "OVERLAY")
             highlight:SetColorTexture(1, 1, 1, 1)
