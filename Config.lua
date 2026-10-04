@@ -801,7 +801,7 @@ local function CreateIndicatorSection(parent,title,prefix,offsetLimit,toggleKey)
         end)
     elseif prefix=="StatusIcon" then
         local note=panel:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,10,"OUTLINE"); note:SetTextColor(unpack(Skin.text))
-        note:SetPoint("TOPLEFT",18,-40); note:SetText("Ready Check • Summon • Incoming Resurrection")
+        note:SetPoint("TOPLEFT",18,-40); note:SetText("Ready Check • Summon • Incoming Resurrection\nParty/Raid also show Soulstone")
     end
     panel.X=FrameSlider(panel,prefix.."XOffset","X",-offsetLimit,offsetLimit,110,18,-94)
     panel.Y=FrameSlider(panel,prefix.."YOffset","Y",-offsetLimit,offsetLimit,110,158,-94)

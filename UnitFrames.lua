@@ -7,7 +7,8 @@ local FONT = "Fonts\\FRIZQT__.TTF"
 local RAID_TARGET_TEXTURE = "Interface\\TargetingFrame\\UI-RaidTargetingIcons"
 local RESURRECTION_ATLAS = "RaidFrame-Icon-Rez"
 local SUMMON_ATLAS_PREFIX = "RaidFrame-Icon-Summon"
-local STATUS_ICON_TYPES = { "ReadyCheckIndicator", "IncomingSummonIndicator", "IncomingResurrectionIndicator" }
+local SOULSTONE_SPELL_ID = 20707
+local STATUS_ICON_TYPES = { "ReadyCheckIndicator", "IncomingSummonIndicator", "IncomingResurrectionIndicator", "SoulstoneIndicator" }
 local frames, previewEnabled, rangeFrames = {}, {}, {}
 ns.frames = frames
 
@@ -224,14 +225,19 @@ end
 
 local function ApplyStatusIndicatorLayout(frame, appearance)
     local size=math.max(8,math.min(48,tonumber(appearance.statusIconSize) or 18))
+    -- Rendering geometry only: preserve currently applied configuration previews
+    -- when event-driven visibility changes repack the sequence.
+    frame.MIUF_StatusIconLayout={statusIconSize=size,statusIconXOffset=appearance.statusIconXOffset,statusIconYOffset=appearance.statusIconYOffset}
     local previous
     for _,field in ipairs(STATUS_ICON_TYPES) do
         local icon=frame[field]
         if icon then
             icon:SetSize(size,size); icon:ClearAllPoints()
-            if previous then icon:SetPoint("RIGHT",previous,"LEFT",-2,0)
-            else icon:SetPoint("TOPRIGHT",(frame.Health or frame.MIUF_StatusPreviewAnchor),"TOPRIGHT",appearance.statusIconXOffset or -4,appearance.statusIconYOffset or -3) end
-            previous=icon
+            if icon:IsShown() then
+                if previous then icon:SetPoint("RIGHT",previous,"LEFT",-2,0)
+                else icon:SetPoint("TOPRIGHT",(frame.Health or frame.MIUF_StatusPreviewAnchor),"TOPRIGHT",appearance.statusIconXOffset or -4,appearance.statusIconYOffset or -3) end
+                previous=icon
+            end
         end
     end
 end
@@ -268,7 +274,7 @@ local function ApplyIndicatorLayout(frame, appearance, skipResting)
     ApplyStatusIndicatorLayout(frame,appearance)
 end
 
-local function SetIndicatorShown(icon, shown)
+local function SetIndicatorShown(frame, icon, shown)
     -- Real event handlers still read/cache real status. Only the rendered Ready
     -- Check texture is overridden, and its cache is invalidated on cleanup.
     local preview=temporaryStatusPreview
@@ -277,27 +283,31 @@ local function SetIndicatorShown(icon, shown)
         shown=preview.frame:IsVisible() and (preview.ghost or (unit and UnitExists(unit)))
         if shown then icon:SetAtlas(READY_CHECK_READY_TEXTURE,false) end
     end
-    if shown then if not icon:IsShown() then icon:Show() end
-    elseif icon:IsShown() then icon:Hide() end
+    local changed=false
+    if shown then if not icon:IsShown() then icon:Show(); changed=true end
+    elseif icon:IsShown() then icon:Hide(); changed=true end
+    if changed and frame.MIUF_StatusIconLayout then
+        ApplyStatusIndicatorLayout(frame,frame.MIUF_StatusIconLayout)
+    end
 end
 
 local function UpdateReadyCheckIndicator(frame)
     local icon=frame.ReadyCheckIndicator; if not icon then return end
     local unit=ns.GetFrameDisplayUnit(frame)
     if not readyCheckDisplayActive or not unit or not UnitExists(unit) then
-        frame.MIUF_ReadyCheckStatus=nil; SetIndicatorShown(icon,false); return
+        frame.MIUF_ReadyCheckStatus=nil; SetIndicatorShown(frame,icon,false); return
     end
     local status=GetReadyCheckStatus(unit)
-    if not canaccessvalue(status) then frame.MIUF_ReadyCheckStatus=nil; SetIndicatorShown(icon,false); return end
+    if not canaccessvalue(status) then frame.MIUF_ReadyCheckStatus=nil; SetIndicatorShown(frame,icon,false); return end
     if readyCheckDisplayActive=="finished" and status=="waiting" then status="notready" end
     local atlas=status=="ready" and READY_CHECK_READY_TEXTURE
         or status=="notready" and READY_CHECK_NOT_READY_TEXTURE
         or status=="waiting" and READY_CHECK_WAITING_TEXTURE
     if atlas then
         if frame.MIUF_ReadyCheckStatus~=status then icon:SetAtlas(atlas,false); frame.MIUF_ReadyCheckStatus=status end
-        SetIndicatorShown(icon,true)
+        SetIndicatorShown(frame,icon,true)
     else
-        frame.MIUF_ReadyCheckStatus=nil; SetIndicatorShown(icon,false)
+        frame.MIUF_ReadyCheckStatus=nil; SetIndicatorShown(frame,icon,false)
     end
 end
 
@@ -305,18 +315,18 @@ local function UpdateIncomingSummonIndicator(frame)
     local icon=frame.IncomingSummonIndicator; if not icon then return end
     local unit=ns.GetFrameDisplayUnit(frame)
     if not unit or not UnitExists(unit) then
-        frame.MIUF_IncomingSummonStatus=nil; SetIndicatorShown(icon,false); return
+        frame.MIUF_IncomingSummonStatus=nil; SetIndicatorShown(frame,icon,false); return
     end
     local status=C_IncomingSummon.IncomingSummonStatus(unit)
-    if not canaccessvalue(status) then frame.MIUF_IncomingSummonStatus=nil; SetIndicatorShown(icon,false); return end
+    if not canaccessvalue(status) then frame.MIUF_IncomingSummonStatus=nil; SetIndicatorShown(frame,icon,false); return end
     local suffix=status==Enum.SummonStatus.Pending and "Pending"
         or status==Enum.SummonStatus.Accepted and "Accepted"
         or status==Enum.SummonStatus.Declined and "Declined"
     if suffix then
         if frame.MIUF_IncomingSummonStatus~=status then icon:SetAtlas(SUMMON_ATLAS_PREFIX..suffix,false); frame.MIUF_IncomingSummonStatus=status end
-        SetIndicatorShown(icon,true)
+        SetIndicatorShown(frame,icon,true)
     else
-        frame.MIUF_IncomingSummonStatus=nil; SetIndicatorShown(icon,false)
+        frame.MIUF_IncomingSummonStatus=nil; SetIndicatorShown(frame,icon,false)
     end
 end
 
@@ -324,13 +334,41 @@ local function UpdateIncomingResurrectionIndicator(frame)
     local icon=frame.IncomingResurrectionIndicator; if not icon then return end
     local unit=ns.GetFrameDisplayUnit(frame)
     local incoming=unit and UnitExists(unit) and UnitHasIncomingResurrection(unit)
-    SetIndicatorShown(icon,canaccessvalue(incoming) and incoming==true)
+    SetIndicatorShown(frame,icon,canaccessvalue(incoming) and incoming==true)
+end
+
+local function HasObservableSoulstone(unit)
+    if not unit or PublicFlag(UnitExists,unit) ~= true
+        or PublicFlag(UnitIsConnected,unit) ~= true
+        or PublicFlag(UnitIsVisible,unit) ~= true
+        or PublicFlag(UnitIsDeadOrGhost,unit) ~= false then return false end
+    if not C_UnitAuras or not C_UnitAuras.GetUnitAuraBySpellID
+        or not C_Secrets or not C_Secrets.ShouldSpellAuraBeSecret
+        or not canaccesstable then return false end
+    local secret=C_Secrets.ShouldSpellAuraBeSecret(SOULSTONE_SPELL_ID)
+    if not canaccessvalue(secret) or secret ~= false then return false end
+    -- The spell-specific API establishes the match. Never inspect aura fields,
+    -- retain the aura, or interpret an inaccessible result as positive evidence.
+    local aura=C_UnitAuras.GetUnitAuraBySpellID(unit,SOULSTONE_SPELL_ID)
+    return canaccessvalue(aura) and type(aura)=="table" and canaccesstable(aura)
+end
+
+local function UpdateSoulstoneIndicator(frame)
+    local icon=frame.SoulstoneIndicator; if not icon then return end
+    local shown=false
+    if frame.MIUF_UnitType=="party" or frame.MIUF_UnitType=="raid" then
+        -- Restricted API access can fail as well as return unavailable data.
+        local ok,observable=pcall(HasObservableSoulstone,ns.GetFrameDisplayUnit(frame))
+        shown=ok and canaccessvalue(observable) and observable==true
+    end
+    SetIndicatorShown(frame,icon,shown)
 end
 
 local function UpdateStatusIndicators(frame)
     UpdateReadyCheckIndicator(frame)
     UpdateIncomingSummonIndicator(frame)
     UpdateIncomingResurrectionIndicator(frame)
+    UpdateSoulstoneIndicator(frame)
 end
 
 function ns.ClearTemporaryStatusPreview()
@@ -338,7 +376,7 @@ function ns.ClearTemporaryStatusPreview()
     temporaryStatusPreview=nil
     if not preview then return end
     if preview.ghost then
-        preview.frame.ReadyCheckIndicator:Hide()
+        SetIndicatorShown(preview.frame,preview.frame.ReadyCheckIndicator,false)
     else
         preview.frame.MIUF_ReadyCheckStatus=nil
         UpdateStatusIndicators(preview.frame)
@@ -389,7 +427,7 @@ function ns.UpdateTemporaryStatusPreview(unitType, appearance)
     end
     if not temporaryStatusPreview then temporaryStatusPreview={frame=frame,ghost=ghost} end
     ApplyStatusIndicatorLayout(frame,appearance)
-    SetIndicatorShown(frame.ReadyCheckIndicator,true)
+    SetIndicatorShown(frame,frame.ReadyCheckIndicator,true)
 end
 
 local function UpdateRestingIndicator(frame)
@@ -675,7 +713,11 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
         local summon=health:CreateTexture(nil,"OVERLAY"); summon:Hide(); frame.IncomingSummonIndicator=summon
         local resurrection=health:CreateTexture(nil,"OVERLAY"); resurrection:SetAtlas(RESURRECTION_ATLAS,false); resurrection:Hide(); frame.IncomingResurrectionIndicator=resurrection
     end
-    if unitType=="party" or unitType=="raid" then local role=health:CreateTexture(nil,"OVERLAY"); role:SetSize(14,14); role:SetPoint("TOPLEFT",health,"TOPLEFT",3,-3); role:Hide(); frame.GroupRoleIndicator=role end
+    if unitType=="party" or unitType=="raid" then
+        local soulstone=health:CreateTexture(nil,"OVERLAY")
+        soulstone:SetTexture(C_Spell.GetSpellTexture(SOULSTONE_SPELL_ID)); soulstone:Hide(); frame.SoulstoneIndicator=soulstone
+        local role=health:CreateTexture(nil,"OVERLAY"); role:SetSize(14,14); role:SetPoint("TOPLEFT",health,"TOPLEFT",3,-3); role:Hide(); frame.GroupRoleIndicator=role
+    end
     if unitType=="player" then
         -- Mainline PlayerFrame.xml uses this atlas and a 7x6, 42-frame loop.
         local resting=health:CreateTexture(nil,"OVERLAY"); resting:SetAtlas("UI-HUD-UnitFrame-Player-Rest-Flipbook"); resting:Hide()
@@ -700,6 +742,7 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
     frame:RegisterEvent("PLAYER_ENTERING_WORLD"); frame:RegisterEvent("RAID_TARGET_UPDATE"); frame:RegisterEvent("PLAYER_ROLES_ASSIGNED"); frame:RegisterEvent("GROUP_ROSTER_UPDATE")
     if frame.IncomingSummonIndicator then ns.RegisterFrameUnitEvent(frame,"INCOMING_SUMMON_CHANGED",frame) end
     if frame.IncomingResurrectionIndicator then ns.RegisterFrameUnitEvent(frame,"INCOMING_RESURRECT_CHANGED",frame) end
+    if frame.SoulstoneIndicator then ns.RegisterFrameUnitEvent(frame,"UNIT_AURA",frame) end
     ns.RegisterFrameUnitEvent(frame,"UNIT_FLAGS",frame)
     -- Blizzard's compact frames route AFK/player-flag changes through this
     -- unit-filtered event as well as UNIT_FLAGS for other status changes.
@@ -731,6 +774,7 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
         end
         if event=="UNIT_HEALTH" or event=="UNIT_MAXHEALTH" or event=="UNIT_FLAGS" or event=="PLAYER_FLAGS_CHANGED" then
             UpdateHealth(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
+            UpdateSoulstoneIndicator(self)
         elseif event=="PARTY_LEADER_CHANGED" then UpdateLeaderIndicator(self)
         elseif event=="PLAYER_UPDATE_RESTING" then UpdateRestingIndicator(self)
         elseif event=="UNIT_POWER_UPDATE" or event=="UNIT_MAXPOWER" then UpdatePower(self)
@@ -740,6 +784,7 @@ local function CreateUnitFrame(unit,name,unitType,positionKey,registerWatch,stor
         elseif event=="RAID_TARGET_UPDATE" then UpdateRaidTarget(self)
         elseif event=="INCOMING_SUMMON_CHANGED" then UpdateIncomingSummonIndicator(self)
         elseif event=="INCOMING_RESURRECT_CHANGED" then UpdateIncomingResurrectionIndicator(self)
+        elseif event=="UNIT_AURA" then UpdateSoulstoneIndicator(self)
         elseif event=="GROUP_ROSTER_UPDATE" and (self.MIUF_UnitType=="party" or self.MIUF_UnitType=="raid") then UpdateFrame(self)
         elseif event=="PLAYER_ROLES_ASSIGNED" or event=="GROUP_ROSTER_UPDATE" then UpdatePowerVisibility(self); UpdateLeaderIndicator(self); UpdateRoleIndicator(self); ApplyColors(self,ns.GetAppearance(self.MIUF_UnitType) or {}); UpdateConnectionState(self)
         elseif event=="UNIT_CONNECTION" then UpdateFrame(self)
