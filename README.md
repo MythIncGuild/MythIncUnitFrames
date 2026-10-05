@@ -2,7 +2,19 @@
 
 MythInc Unit Frames (MIUF) is a configurable native unit-frame addon for **World of Warcraft Retail**. No oUF is required.
 
-**Current version: 0.10.0-beta.3** — an outside-testing beta. This is active beta testing, and you may encounter bugs.
+**Current version: 0.10.0-beta.4** — an outside-testing beta. This is active beta testing, and you may encounter bugs.
+
+## What's new in beta.4
+
+- Refreshed castbar visuals, a Player latency SafeZone, and wider Player/Target castbar positioning ranges.
+- Added a precision frame-positioning panel and made dispel highlights more visible.
+- Party/Raid temporary status icons now show observable Soulstone buffs on living units; visible icons collapse together without gaps. Soulstone is not tracked after death.
+- Added profile Export/Import and expanded the Profiles page. Import replaces the current profile's settings, keeps its tracked buffs, and reloads the UI. Tracked buffs and discovery history are excluded from sharing.
+- Added manual tracked-buff entry by Spell ID. Explicitly tracked helpful buffs now display regardless of caster.
+- Seen Buff discovery now includes safely identifiable player/party/raid player sources outside combat while configuring. Missing or restricted sources are skipped; manual Spell ID remains the fallback.
+- Right-click Seen Buffs to dismiss unwanted entries permanently. Clear Seen History keeps dismissals; Reset Dismissed allows rediscovery. Tooltips clear when buff icons disappear or move.
+
+Please test externally cast Power Infusion (10060), dismissal/reset, profile copy/paste and tracked-buff preservation, exact positions after reload, and castbar/Soulstone behavior in groups at your usual UI scale.
 
 ## Frames and features
 

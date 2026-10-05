@@ -2,7 +2,7 @@
 ## Title: MythInc Unit Frames
 ## Notes: Simple, readable unit frames for MythInc.
 ## Author: MythInc
-## Version: 0.10.0-beta.3
+## Version: 0.10.0-beta.4
 ## IconTexture: Interface\AddOns\MythIncUnitFrames\Media\Artwork\MIUF_Icon_64.png
 ## SavedVariables: MythIncUnitFramesDB
 

@@ -1,7 +1,29 @@
-MythInc Unit Frames 0.10.0-beta.3
+MythInc Unit Frames 0.10.0-beta.4
 
 Native unit frames for World of Warcraft Retail, targeting interface 120100
 (12.1). Uses Blizzard's secure frames and aura containers. No oUF is required.
+
+What's new in beta.4
+-------------------
+- Refreshed castbar visuals, Player latency SafeZone, and wider Player/Target
+  castbar positioning ranges.
+- Precision frame-positioning panel and more visible dispel highlights.
+- Living Party/Raid units show observable Soulstone buffs. Visible temporary
+  status icons collapse together without gaps; Soulstone is not tracked after death.
+- Profile Export/Import and a larger, reorganized Profiles page. Import replaces
+  current settings, preserves tracked buffs, and reloads. Sharing excludes
+  tracked buffs and discovery history.
+- Manual tracking by Spell ID; explicitly tracked helpful buffs display
+  regardless of caster.
+- Configuration-only Seen Buff discovery accepts safely identified self, party,
+  and raid player sources. Missing/restricted sources are skipped.
+- Right-click dismissal, persistent dismissed history, Reset Dismissed, and
+  tooltip cleanup when buff icons disappear or move.
+
+Please test external Power Infusion (10060), dismissal/reset, profile copy/paste
+and tracked-buff preservation, positions after reload, and castbar/Soulstone
+behavior in groups at your usual UI scale. Manual Spell ID remains the fallback
+when automatic discovery misses a buff.
 
 Installation
 ------------
@@ -66,14 +88,19 @@ Raid: debuffs only. Pet and Boss: no aura display or aura controls.
 
 Supported aura types have enable, cooldown-text, icon-size, maximum-count,
 spacing, top/bottom anchor, left/right growth, and X/Y offset controls.
-Enable Buff Filtering is per frame type: on shows your buffs from the
+Enable Buff Filtering is per frame type: on shows helpful buffs from the
 profile-wide tracked list; off shows all helpful buffs. It defaults off for
 Target and on for other supported buff frames. An empty tracked list shows
 no normal buffs while filtering is enabled.
 
-Manage Tracked Buffs adds observed buffs or removes tracked buffs. Discovery
-examines your buffs on selected units outside combat. Tracking edits are staged;
-Clear Seen History immediately clears shared discovery history across profiles.
+Manage Tracked Buffs adds observed buffs or known Spell IDs, or removes tracked
+buffs. Tracked buffs match regardless of caster. Discovery scans up to 40 helpful
+auras on selected units outside combat while configuring, accepting only safely
+identified self/party/raid player sources. Unknown or restricted sources and
+non-player sources are skipped. Tracking edits are staged and require Apply.
+Right-click a Seen Buff to dismiss it immediately across profiles and prevent
+rediscovery. Clear Seen History clears history but keeps dismissals; Reset
+Dismissed allows discovery again. Neither history action requires Apply.
 Player, Party, Target of Target, and Raid debuffs use built-in exclusions and
 omit player/player-pet debuffs; Target/Focus use the general harmful filter.
 Player, Party, Focus, and Raid have dispel highlighting. Party defensive
@@ -92,6 +119,10 @@ on Player, Target, Focus, Target of Target, Party, and Raid. Shared size/offset
 controls are available, but no individual enable switches. Preview temporarily
 shows a ready-check icon on an available live frame or group preview; it is not
 saved and clears on leaving that view.
+Party/Raid also show Soulstone when its buff is safely observable on a living
+unit. It disappears with the aura; unused self-resurrection is not tracked after
+death. Visible status icons use Ready Check, Summon, Resurrection, Soulstone order
+without gaps for hidden icons.
 
 Castbars and click-casting
 -------------------------
@@ -106,6 +137,8 @@ height, X/Y offsets, and Preview Cast Bar controls. Changes are staged with
 the rest of the configuration. Focus and Boss have enablement only and keep
 their original frame-relative geometry (frame width, 18 high, 3 below the
 frame). All Boss frames share the same castbar enablement setting.
+Player/Target castbar offsets support -1000 to +1000. Player has a latency
+SafeZone. The precision positioning panel supports exact frame placement.
 
 Frames register with ClickCastFrames for compatible addons such as Clique.
 Configure bindings in that addon; MIUF has no built-in binding editor.
@@ -117,9 +150,13 @@ Create New starts from defaults. Copy Current copies saved settings: apply
 pending edits first if they should be included. Rename Selected and Delete
 Selected manage profiles. Default cannot be renamed/deleted; the active profile
 cannot be deleted. Characters using a deleted profile fall back to Default.
-Use Profile requires no pending edits and reloads the UI. Profile operations
+Use Selected Profile requires no pending edits and reloads the UI. Profile operations
 are unavailable in combat. Seen-buff history is shared; tracked buffs,
 appearance, layouts, positions, and enable states belong to each profile.
+Export shares the saved active profile; Apply or Revert pending edits first.
+Import requires a clean session outside combat, confirms replacement of the
+current profile, keeps its tracked buffs, and reloads. Tracked buffs, seen and
+dismissed history, character profile choices, and other profiles are not shared.
 
 Limitations and reloads
 ----------------------
@@ -128,7 +165,7 @@ Limitations and reloads
   reloads if live application fails or cannot complete.
 - Protected layout/visibility work may wait until combat ends. Apply and Revert
   are unavailable during combat; Blizzard controls restricted aura data.
-- The profile picker displays ten entries. The buff manager displays up to 24
+- The profile picker displays thirteen entries. The buff manager displays up to 24
   seen and 24 tracked buffs. These lists currently have no pagination.
 - Blizzard Party and the raid container are reversibly hidden while the
   corresponding MIUF frame type is enabled in applied settings. Applying a
@@ -141,7 +178,7 @@ Limitations and reloads
 - Blizzard's Player, Pet, Target, Focus, and Boss unit frames remain suppressed
   independently of MIUF's enable switches. Disabling those MIUF frame types
   does not restore their Blizzard unit-frame counterparts.
-- This is the first outside-testing beta. Bugs may occur; combat, vehicles,
+- This is an outside-testing beta. Bugs may occur; combat, vehicles,
   group changes, artwork, UI scaling, and raid layouts warrant testing in game.
 
 Beta feedback
