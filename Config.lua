@@ -102,6 +102,7 @@ local manageTrackedButton
 local profileCurrentLabel, profileCharacterLabel, profileNameBox, profileActionStatus
 local profileButtons = {}
 local selectedProfileName
+local sharingDialog
 local refreshing = false
 local working, auraWorking, groupWorking = {}, {}, {}
 local raidPreviewControls
@@ -589,6 +590,9 @@ local function RefreshProfilesControls()
     if not selectedProfileName or not ns.ProfileExists(selectedProfileName) then selectedProfileName = active end
     profileCurrentLabel:SetText("Current profile: |cff66ccff"..active.."|r")
     profileCharacterLabel:SetText("Character: "..ns.GetCharacterProfileKey())
+    if profileActionStatus:GetText()==nil or profileActionStatus:GetText()=="" then
+        SetProfileStatus(selectedProfileName==active and (active.." is already active.") or ("Switches this character to "..selectedProfileName.." and reloads the UI."),false)
+    end
     for i,button in ipairs(profileButtons) do
         local name=names[i]
         if name then
@@ -688,7 +692,7 @@ function ns.RefreshConfig()
     else
         RefreshProfilesControls()
     end
-    statusText:SetText(InCombatLockdown() and "Apply and Revert are unavailable during combat." or (ns.ConfigSessionIsDirty() and "Pending changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "Profile switches reload the UI so protected frames rebuild cleanly." or "Edit settings, then click Apply Changes.")))
+    statusText:SetText(InCombatLockdown() and "Apply and Revert are unavailable during combat." or (ns.ConfigSessionIsDirty() and "Pending changes are waiting. Click Apply Changes when ready." or (selectedPage=="profiles" and "" or "Edit settings, then click Apply Changes.")))
     applyChangesButton:SetEnabled(ns.ConfigSessionIsDirty() and not InCombatLockdown())
     refreshing=false
     if not InCombatLockdown() and selectedPage=="frames" and frameUI.category~="Auras"
@@ -1225,28 +1229,122 @@ local function CreateAurasPage()
     CreateAuraActions(aurasPage)
 end
 
+local function OpenProfileSharing(mode)
+    local text,name
+    if mode=="export" then
+        text,name=ns.ExportProfile()
+        if not text then SetProfileStatus(name,true); return end
+    else name=ns.GetActiveProfileName() end
+    if not sharingDialog then
+        local dialog=CreateFrame("Frame",nil,config,"BackdropTemplate")
+        dialog:SetSize(650,460); dialog:SetPoint("CENTER"); dialog:SetFrameLevel(config:GetFrameLevel()+50)
+        dialog:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); Skin.Panel(dialog,Skin.background)
+        dialog:EnableMouse(true); dialog:SetClampedToScreen(true)
+        local title=dialog:CreateFontString(nil,"OVERLAY"); title:SetFont(FONT,14,"OUTLINE"); title:SetPoint("TOPLEFT",20,-20)
+        local help=dialog:CreateFontString(nil,"OVERLAY"); help:SetFont(FONT,11,"OUTLINE"); help:SetPoint("TOPLEFT",20,-48)
+        help:SetWidth(600); help:SetJustifyH("LEFT")
+        local scroll=CreateFrame("ScrollFrame",nil,dialog,"UIPanelScrollFrameTemplate")
+        scroll:SetPoint("TOPLEFT",20,-80); scroll:SetPoint("BOTTOMRIGHT",-40,118)
+        local box=CreateFrame("EditBox",nil,scroll)
+        box:SetMultiLine(true); box:SetFont(FONT,11,"OUTLINE"); box:SetAutoFocus(false)
+        box:SetSize(590,262); box:SetMaxLetters(98305); box:EnableMouse(true)
+        scroll:SetScrollChild(box); box:SetPoint("TOPLEFT",scroll,"TOPLEFT",0,0)
+        local measure=scroll:CreateFontString(nil,"ARTWORK")
+        measure:SetFont(FONT,11,"OUTLINE"); measure:SetWordWrap(true); measure:SetNonSpaceWrap(true); measure:Hide()
+        local function SizeSharingInput()
+            box:SetWidth(scroll:GetWidth())
+            measure:SetWidth(scroll:GetWidth()); measure:SetText((box:GetText() or "").."\n ")
+            local height=math.max(scroll:GetHeight(),measure:GetStringHeight())
+            -- Two vertical anchors keep multiline auto-sizing from shrinking
+            -- the clickable area below the viewport or measured content.
+            box:SetPoint("BOTTOMLEFT",scroll,"TOPLEFT",0,-height)
+        end
+        scroll:SetScript("OnSizeChanged",SizeSharingInput)
+        -- Multiline edit boxes can shrink to their text height. Blank viewport
+        -- space must still accept the first click after keyboard focus is lost.
+        scroll:EnableMouse(true)
+        scroll:SetScript("OnMouseDown",function(_,button)
+            if button=="LeftButton" then box:SetFocus() end
+        end)
+        box:SetScript("OnEscapePressed",function() dialog:Hide() end)
+        box:SetScript("OnCursorChanged",function(_,_,y,_,height)
+            local offset=-y; local top=scroll:GetVerticalScroll()
+            if offset<top then scroll:SetVerticalScroll(math.max(0,offset))
+            elseif offset+height>top+scroll:GetHeight() then scroll:SetVerticalScroll(math.max(0,offset+height-scroll:GetHeight())) end
+        end)
+        local feedback=dialog:CreateFontString(nil,"OVERLAY"); feedback:SetFont(FONT,11,"OUTLINE")
+        feedback:SetPoint("BOTTOMLEFT",20,50); feedback:SetWidth(600); feedback:SetHeight(60); feedback:SetJustifyH("LEFT")
+        local action=MakeButton(dialog,"Import",140,28); action:SetPoint("BOTTOMLEFT",20,16)
+        local close=MakeButton(dialog,"Close",100,28); close:SetPoint("BOTTOMRIGHT",-20,16)
+        close:SetScript("OnClick",function() dialog:Hide() end)
+        action:SetScript("OnClick",function()
+            if dialog.mode=="export" then box:SetFocus(); box:HighlightText(); return end
+            if dialog.request then
+                local request=dialog.request; dialog.request=nil; action:SetText("Import")
+                local ok,err=request.confirm(function() return ns.CloseConfig() end)
+                if not ok then
+                    feedback:SetText(err)
+                    if not dialog:IsVisible() then print("MIUF: profile import could not finish. Reopen configuration and validate again.") end
+                end
+                return
+            end
+            local request,err=ns.PrepareProfileImport(box:GetText())
+            if not request then feedback:SetText(err); return end
+            dialog.request=request; action:SetText("Confirm Import")
+            box:ClearFocus()
+            feedback:SetText("Replace settings in '"..request.profileName.."'?\nYour tracked buffs will be kept.\nThe UI will reload.")
+        end)
+        box:SetScript("OnTextChanged",function(self,user)
+            SizeSharingInput()
+            if user and dialog.mode=="export" then self:SetText(dialog.exportText)
+            elseif user then dialog.request=nil; action:SetText("Import"); feedback:SetText("") end
+        end)
+        dialog:SetScript("OnHide",function() dialog.request=nil; box:ClearFocus(); box:SetText("") end)
+        dialog.title,dialog.help,dialog.box,dialog.feedback,dialog.action,dialog.scroll=title,help,box,feedback,action,scroll
+        sharingDialog=dialog
+    end
+    local dialog=sharingDialog
+    dialog.mode=mode; dialog.request=nil
+    dialog.title:SetText((mode=="export" and "Export current profile: " or "Import into current profile: ")..name)
+    dialog.help:SetText(mode=="export" and "Select All, then press Ctrl+C to copy. Tracked buffs are excluded."
+        or "Paste an MIUF export below. Your existing tracked buffs will be preserved.")
+    dialog.feedback:SetText(""); dialog.action:SetText(mode=="export" and "Select All" or "Import")
+    -- Break only the presentation into short lines; the parser accepts these
+    -- newlines and the entire field remains selectable with Ctrl+A/Select All.
+    dialog.exportText=mode=="export" and (text:gsub("("..string.rep(".",96)..")","%1\n")) or nil
+    dialog.box:SetText(dialog.exportText or "")
+    dialog.scroll:SetVerticalScroll(0); dialog:Show()
+end
+
 local function CreateProfilesPage()
-    profilesPage=CreateFrame("Frame",nil,config); profilesPage:SetPoint("TOPLEFT",160,-80); profilesPage:SetPoint("BOTTOMRIGHT",-10,50)
-    local section=MakeSection(profilesPage,"Profile Management",690,430); section:SetPoint("TOPLEFT",20,-62)
+    profilesPage=CreateFrame("Frame",nil,config); profilesPage:SetPoint("TOPLEFT",16,-106); profilesPage:SetPoint("BOTTOMRIGHT",-16,64)
+    local section=MakeSection(profilesPage,"Profile Management",868,622); section:SetPoint("TOPLEFT",0,-36)
 
     profileCurrentLabel=section:CreateFontString(nil,"OVERLAY"); profileCurrentLabel:SetFont(FONT,14,"OUTLINE"); profileCurrentLabel:SetTextColor(unpack(Skin.text)); profileCurrentLabel:SetPoint("TOPLEFT",18,-38)
     profileCharacterLabel=section:CreateFontString(nil,"OVERLAY"); profileCharacterLabel:SetFont(FONT,10,"OUTLINE"); profileCharacterLabel:SetTextColor(unpack(Skin.text)); profileCharacterLabel:SetPoint("TOPLEFT",18,-62); profileCharacterLabel:SetTextColor(unpack(Skin.muted))
 
-    local listTitle=section:CreateFontString(nil,"OVERLAY"); listTitle:SetFont(FONT,11,"OUTLINE"); listTitle:SetTextColor(unpack(Skin.text)); listTitle:SetPoint("TOPLEFT",18,-96); listTitle:SetText("Profiles")
-    for i=1,10 do
-        local b=MakeButton(section,"",220,26); b:SetPoint("TOPLEFT",18,-118-((i-1)*29)); b:SetScript("OnClick",function(self)
+    local listTitle=section:CreateFontString(nil,"OVERLAY"); listTitle:SetFont(FONT,14,"OUTLINE"); listTitle:SetTextColor(unpack(Skin.text)); listTitle:SetPoint("TOPLEFT",18,-96); listTitle:SetText("Profiles")
+    for i=1,13 do
+        local b=MakeButton(section,"",290,26); b:SetPoint("TOPLEFT",18,-218-((i-1)*29)); b:SetScript("OnClick",function(self)
             selectedProfileName=self.ProfileName
-            SetProfileStatus("Selected "..selectedProfileName..". Use Profile will switch this character and reload the UI.",false)
+            SetProfileStatus(selectedProfileName==ns.GetActiveProfileName() and (selectedProfileName.." is already active.") or ("Switches this character to "..selectedProfileName.." and reloads the UI."),false)
             RefreshProfilesControls()
         end); profileButtons[i]=b
     end
 
-    local nameLabel=section:CreateFontString(nil,"OVERLAY"); nameLabel:SetFont(FONT,11,"OUTLINE"); nameLabel:SetTextColor(unpack(Skin.text)); nameLabel:SetPoint("TOPLEFT",275,-96); nameLabel:SetText("Profile name")
-    profileNameBox=CreateFrame("EditBox",nil,section,"InputBoxTemplate"); profileNameBox:SetSize(250,24); profileNameBox:SetPoint("TOPLEFT",275,-118); profileNameBox:SetAutoFocus(false); profileNameBox:SetMaxLetters(40); Skin.Edit(profileNameBox)
+    local function GroupTitle(text,y)
+        local label=section:CreateFontString(nil,"OVERLAY")
+        label:SetFont(FONT,14,"OUTLINE"); label:SetTextColor(unpack(Skin.text))
+        label:SetPoint("TOPLEFT",340,y); label:SetText(text)
+    end
+    GroupTitle("Management",-96)
+    GroupTitle("Sharing",-370)
+    local nameLabel=section:CreateFontString(nil,"OVERLAY"); nameLabel:SetFont(FONT,11,"OUTLINE"); nameLabel:SetTextColor(unpack(Skin.text)); nameLabel:SetPoint("TOPLEFT",340,-128); nameLabel:SetText("Profile name")
+    profileNameBox=CreateFrame("EditBox",nil,section,"InputBoxTemplate"); profileNameBox:SetSize(300,24); profileNameBox:SetPoint("TOPLEFT",340,-150); profileNameBox:SetAutoFocus(false); profileNameBox:SetMaxLetters(40); Skin.Edit(profileNameBox)
     profileNameBox:SetScript("OnEnterPressed",function(self) self:ClearFocus() end)
     profileNameBox:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
 
-    local use=MakeButton(section,"Use Profile",120,28); use:SetPoint("TOPLEFT",275,-158); use:SetScript("OnClick",function()
+    local use=MakeButton(section,"Use Selected Profile",180,28); use:SetPoint("TOPLEFT",18,-128); use:SetScript("OnClick",function()
         if InCombatLockdown() then SetProfileStatus("Profiles cannot be switched during combat.",true); return end
         if ns.ConfigSessionIsDirty() then SetProfileStatus("Apply pending changes before switching profiles.",true); return end
         local target=selectedProfileName or ns.GetActiveProfileName()
@@ -1256,21 +1354,21 @@ local function CreateProfilesPage()
         ReloadUI()
     end)
 
-    local create=MakeButton(section,"Create New",120,28); create:SetPoint("LEFT",use,"RIGHT",8,0); create:SetScript("OnClick",function()
+    local create=MakeButton(section,"Create New",120,28); create:SetPoint("TOPLEFT",340,-190); create:SetScript("OnClick",function()
         if InCombatLockdown() then SetProfileStatus("Profiles cannot be changed during combat.",true); return end
         local ok,msg=ns.CreateProfile(profileNameBox:GetText())
         if not ok then SetProfileStatus(msg,true); return end
         selectedProfileName=msg; profileNameBox:SetText(""); SetProfileStatus("Created "..msg.." from defaults.",false); RefreshProfilesControls()
     end)
 
-    local copy=MakeButton(section,"Copy Current",120,28); copy:SetPoint("TOPLEFT",275,-198); copy:SetScript("OnClick",function()
+    local copy=MakeButton(section,"Copy Current",120,28); copy:SetPoint("LEFT",create,"RIGHT",8,0); copy:SetScript("OnClick",function()
         if InCombatLockdown() then SetProfileStatus("Profiles cannot be changed during combat.",true); return end
         local ok,msg=ns.CopyProfile(ns.GetActiveProfileName(),profileNameBox:GetText())
         if not ok then SetProfileStatus(msg,true); return end
         selectedProfileName=msg; profileNameBox:SetText(""); SetProfileStatus("Copied current profile to "..msg..".",false); RefreshProfilesControls()
     end)
 
-    local rename=MakeButton(section,"Rename Selected",120,28); rename:SetPoint("LEFT",copy,"RIGHT",8,0); rename:SetScript("OnClick",function()
+    local rename=MakeButton(section,"Rename Selected",120,28); rename:SetPoint("TOPLEFT",340,-230); rename:SetScript("OnClick",function()
         if InCombatLockdown() then SetProfileStatus("Profiles cannot be changed during combat.",true); return end
         local source=selectedProfileName or ns.GetActiveProfileName()
         local ok,msg=ns.RenameProfile(source,profileNameBox:GetText())
@@ -1278,7 +1376,7 @@ local function CreateProfilesPage()
         selectedProfileName=msg; profileNameBox:SetText(""); SetProfileStatus("Profile renamed to "..msg..".",false); RefreshProfilesControls()
     end)
 
-    local delete=MakeButton(section,"Delete Selected",120,28); delete:SetPoint("TOPLEFT",275,-238); delete:SetScript("OnClick",function()
+    local delete=MakeButton(section,"Delete Selected",120,28); delete:SetPoint("LEFT",rename,"RIGHT",8,0); delete:SetScript("OnClick",function()
         if InCombatLockdown() then SetProfileStatus("Profiles cannot be changed during combat.",true); return end
         local source=selectedProfileName
         if not source then SetProfileStatus("Select a profile first.",true); return end
@@ -1287,11 +1385,20 @@ local function CreateProfilesPage()
         selectedProfileName=ns.GetActiveProfileName(); SetProfileStatus("Deleted "..source..".",false); RefreshProfilesControls()
     end)
 
-    local note=section:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,10,"OUTLINE"); note:SetTextColor(unpack(Skin.text)); note:SetPoint("TOPLEFT",275,-292); note:SetWidth(380); note:SetJustifyH("LEFT")
-    note:SetText("Create New starts from defaults. Copy Current duplicates every setting in the active profile. Each character remembers which profile it uses. Switching profiles reloads the UI so secure frames and aura containers rebuild from one consistent settings set.")
+    local export=MakeButton(section,"Export",120,28); export:SetPoint("TOPLEFT",340,-402)
+    export:SetScript("OnClick",function() OpenProfileSharing("export") end)
+    local import=MakeButton(section,"Import",120,28); import:SetPoint("LEFT",export,"RIGHT",8,0)
+    import:SetScript("OnClick",function() OpenProfileSharing("import") end)
+
+    local note=section:CreateFontString(nil,"OVERLAY"); note:SetFont(FONT,10,"OUTLINE"); note:SetTextColor(unpack(Skin.text)); note:SetPoint("TOPLEFT",340,-274); note:SetWidth(490); note:SetHeight(64); note:SetJustifyH("LEFT")
+    note:SetText("Create New starts from defaults. Copy Current duplicates the active profile. Rename and Delete act on the selected profile. Enter a profile name above when creating, copying, or renaming.")
     note:SetTextColor(unpack(Skin.muted))
 
-    profileActionStatus=section:CreateFontString(nil,"OVERLAY"); profileActionStatus:SetFont(FONT,10,"OUTLINE"); profileActionStatus:SetTextColor(unpack(Skin.text)); profileActionStatus:SetPoint("TOPLEFT",275,-365); profileActionStatus:SetWidth(380); profileActionStatus:SetJustifyH("LEFT")
+    local sharingHelp=section:CreateFontString(nil,"OVERLAY")
+    sharingHelp:SetFont(FONT,10,"OUTLINE"); sharingHelp:SetTextColor(unpack(Skin.muted))
+    sharingHelp:SetPoint("TOPLEFT",340,-446); sharingHelp:SetWidth(490); sharingHelp:SetHeight(80); sharingHelp:SetJustifyH("LEFT")
+    sharingHelp:SetText("Export shares the saved active profile. Import replaces the current profile's settings and reloads the UI. Your existing tracked buffs are preserved. Apply or Revert pending changes before sharing.")
+    profileActionStatus=section:CreateFontString(nil,"OVERLAY"); profileActionStatus:SetFont(FONT,11,"OUTLINE"); profileActionStatus:SetTextColor(unpack(Skin.text)); profileActionStatus:SetPoint("TOPLEFT",18,-164); profileActionStatus:SetWidth(290); profileActionStatus:SetHeight(42); profileActionStatus:SetJustifyV("TOP"); profileActionStatus:SetJustifyH("LEFT")
 end
 
 local function CreateConfig()
@@ -1306,6 +1413,7 @@ end
 function ns.CloseConfig()
     if closing then return end
     closing=true
+    if sharingDialog then sharingDialog:Hide() end
     ns.StopConfigurationMovers()
     ClearStatusIconPreview(); ClearCastbarPreview(); ClearAuraPositionPreview()
     previewFrameType=nil; previewAuraUnitType,previewAuraType=nil,nil
@@ -1320,6 +1428,7 @@ function ns.CloseConfig()
     if err then print("|cffff5555MIUF: Close restoration will be retried. "..tostring(err).."|r") end
     ns.UpdateLockMoversButton()
     closing=false
+    return restored
 end
 
 function ns.RestoreConfig()
@@ -1331,6 +1440,7 @@ function ns.RestoreConfig()
 end
 
 function ns.CollapseConfig()
+    if sharingDialog then sharingDialog:Hide() end
     if not collapsedBar then
         collapsedBar=CreateFrame("Frame","MIUF_CollapsedConfig",UIParent,"BackdropTemplate")
         collapsedBar:SetSize(300,38); collapsedBar:SetPoint("TOP",UIParent,"TOP",0,-40)

@@ -292,6 +292,26 @@ ns.defaultGroupLayout = defaultGroupLayout
 ns.CopyTable = CopyTable
 ns.InitializeDatabase = InitializeDatabase
 
+-- Sharing works on detached data; these helpers never initialize or normalize
+-- the live database as part of an import transaction.
+function ns.GetProfileSharingDefaults() return NewDefaultProfile() end
+function ns.NormalizeSharedProfile(candidate)
+    local normalized=NormalizeProfile(candidate)
+    for unitType in pairs(CASTBAR_TYPES) do
+        normalized.barLayout[unitType].castbar=ns.NormalizeCastbarLayout(normalized.barLayout[unitType].castbar)
+    end
+    normalized.trackedBuffs=nil
+    return normalized
+end
+function ns.ReplaceSharedProfile(name,expected,candidate)
+    if ns.GetActiveProfileName()~=name or MythIncUnitFramesDB.profiles[name]~=expected then
+        return false,"The current profile changed. Validate the import again."
+    end
+    candidate.trackedBuffs=expected.trackedBuffs
+    MythIncUnitFramesDB.profiles[name]=candidate
+    return true
+end
+
 function ns.GetCharacterProfileKey() InitializeDatabase(); return initializedCharacterKey end
 function ns.GetActiveProfileName() local _, name = ActiveProfile(); return name end
 function ns.GetProfileNames()
