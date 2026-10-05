@@ -545,14 +545,64 @@ local function BuffPickerUnits()
     if selectedType=="player" or selectedType=="target" or selectedType=="focus" or selectedType=="targettarget" then return {selectedType} end
     return {}
 end
+local function IsSeenBuffGroupPlayer(source)
+    if not canaccessvalue(source) or type(source)~="string" or source=="" then return false end
+    local ok,accepted=pcall(function()
+        local player=UnitIsPlayer(source)
+        if not canaccessvalue(player) or player~=true then return false end
+        local self=UnitIsUnit(source,"player")
+        if not canaccessvalue(self) or type(self)~="boolean" then return false end
+        if self==true then return true end
+        local party=UnitInParty(source)
+        if not canaccessvalue(party) or type(party)~="boolean" then return false end
+        if party==true then return true end
+        local raid=UnitInRaid(source)
+        if not canaccessvalue(raid) then return false end
+        return type(raid)=="number" and raid>0 and raid<=40 and raid==math.floor(raid)
+    end)
+    return ok and accepted==true
+end
+
 local function ObserveCurrentBuffs()
     if InCombatLockdown() or not C_UnitAuras or not C_UnitAuras.GetUnitAuras then return end
     for _,unit in ipairs(BuffPickerUnits()) do
-        local ok,auras=pcall(C_UnitAuras.GetUnitAuras,unit,"HELPFUL|PLAYER",40)
-        if ok and type(auras)=="table" then for _,aura in ipairs(auras) do
-            local id=aura and tonumber(aura.spellId); if id then ns.RecordSeenBuff(id,aura.name,aura.icon) end
-        end end
+        local ok,auras=pcall(C_UnitAuras.GetUnitAuras,unit,"HELPFUL",40)
+        if ok then pcall(function()
+            if not canaccessvalue(auras) or type(auras)~="table" or not canaccesstable(auras) then return end
+            for _,aura in ipairs(auras) do
+                pcall(function()
+                    if not canaccessvalue(aura) or type(aura)~="table" or not canaccesstable(aura) then return end
+                    if not IsSeenBuffGroupPlayer(aura.sourceUnit) then return end
+                    local id,name,icon=aura.spellId,aura.name,aura.icon
+                    if not canaccessvalue(id) or not canaccessvalue(name) or not canaccessvalue(icon) then return end
+                    if type(id)~="number" or id<=0 or id==math.huge or id~=math.floor(id)
+                        or type(name)~="string" or type(icon)~="number" or icon~=icon or icon<=0 or icon==math.huge then return end
+                    ns.RecordSeenBuff(id,name,icon)
+                end)
+            end
+        end) end
     end
+end
+
+local function AddTrackedSpellID(text)
+    if InCombatLockdown() then return false,"Cannot add buffs during combat." end
+    local trimmed=(text or ""):match("^%s*(.-)%s*$")
+    local id=trimmed:match("^%d+$") and tonumber(trimmed)
+    if not id or id<=0 or id>2147483647 or id~=math.floor(id) then return false,"Enter a positive whole spell ID." end
+    local ok,info=pcall(function()
+        local value=C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(id)
+        if not canaccessvalue(value) or type(value)~="table" or not canaccesstable(value) then return end
+        local name,icon=value.name,value.iconID
+        if not canaccessvalue(name) or not canaccessvalue(icon) then return end
+        if type(name)~="string" or name=="" or type(icon)~="number" or icon~=icon or icon<=0 or icon==math.huge then return end
+        return {name=name,icon=icon}
+    end)
+    if not ok or not info then return false,"Spell unavailable. Check the ID and try again." end
+    local values=ns.ConfigSessionGetTrackedBuffs()
+    if values[id] then return false,"That spell is already tracked." end
+    values[id]=info; ns.ConfigSessionStageTrackedBuffs(values)
+    MarkPending(info.name.." will be tracked.")
+    return true,info.name.." will be tracked. Apply to save."
 end
 
 local function RefreshTrackedWindow()
@@ -565,9 +615,18 @@ local function RefreshTrackedWindow()
     manageTrackedButton:SetText(#trackedList>0 and ("Manage Tracked Buffs ("..#trackedList..")") or "Manage Tracked Buffs")
     if not trackedBuffWindow then return end
     local function Configure(button,info,isTracked)
+        local spellID=info and info.spellID
+        if button.MIUF_TrackedBuffSpellID~=spellID and GameTooltip:IsOwned(button) then GameTooltip:Hide() end
+        button.MIUF_TrackedBuffSpellID=spellID
         if not info then button:Hide(); return end
-        button.icon:SetTexture(info.icon or 134400); button:SetScript("OnEnter",function(self) GameTooltip:SetOwner(self,"ANCHOR_RIGHT"); GameTooltip:SetText(info.name); GameTooltip:AddLine(isTracked and "Click to stop tracking." or "Click to track.",0.8,0.8,0.8); GameTooltip:Show() end); button:SetScript("OnLeave",GameTooltip_Hide)
-        button:SetScript("OnClick",function()
+        button:RegisterForClicks("LeftButtonUp","RightButtonUp")
+        button.icon:SetTexture(info.icon or 134400); button:SetScript("OnEnter",function(self) GameTooltip:SetOwner(self,"ANCHOR_RIGHT"); GameTooltip:SetText(info.name); GameTooltip:AddLine(isTracked and "Click to stop tracking." or "Left-click to track. Right-click to dismiss.",0.8,0.8,0.8); GameTooltip:Show() end); button:SetScript("OnLeave",GameTooltip_Hide)
+        button:SetScript("OnClick",function(_,mouseButton)
+            if InCombatLockdown() then return end
+            if mouseButton=="RightButton" then
+                if not isTracked then ns.DismissSeenBuff(info.spellID); RefreshTrackedWindow() end
+                return
+            end
             if InCombatLockdown() then return end; local values=ns.ConfigSessionGetTrackedBuffs()
             if isTracked then values[info.spellID]=nil else values[info.spellID]={name=info.name,icon=info.icon} end
             ns.ConfigSessionStageTrackedBuffs(values)
@@ -1183,15 +1242,29 @@ local function CreateBuffFilteringControls(parent)
 end
 
 local function CreateTrackedBuffManager()
-    trackedBuffWindow=CreateFrame("Frame","MIUF_TrackedBuffWindow",UIParent,"BackdropTemplate"); trackedBuffWindow:SetSize(620,300); trackedBuffWindow:SetPoint("CENTER"); trackedBuffWindow:SetFrameStrata("DIALOG"); trackedBuffWindow:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); Skin.Panel(trackedBuffWindow,Skin.background); trackedBuffWindow:Hide()
+    trackedBuffWindow=CreateFrame("Frame","MIUF_TrackedBuffWindow",UIParent,"BackdropTemplate"); trackedBuffWindow:SetSize(620,368); trackedBuffWindow:SetPoint("CENTER"); trackedBuffWindow:SetFrameStrata("DIALOG"); trackedBuffWindow:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); Skin.Panel(trackedBuffWindow,Skin.background); trackedBuffWindow:Hide()
     local function Choice(x,y)
         local b=CreateFrame("Button",nil,trackedBuffWindow,"BackdropTemplate"); b:SetSize(34,34); b:SetPoint("TOPLEFT",x,y); b:SetBackdrop({bgFile=MEDIA,edgeFile=MEDIA,edgeSize=1}); Skin.Button(b); b.icon=b:CreateTexture(nil,"ARTWORK"); b.icon:SetPoint("TOPLEFT",2,-2); b.icon:SetPoint("BOTTOMRIGHT",-2,2); return b
     end
-    for i=1,24 do local col=(i-1)%12; local row=math.floor((i-1)/12); seenBuffButtons[i]=Choice(14+col*40,-60-row*40); trackedBuffButtons[i]=Choice(14+col*40,-168-row*40) end
-    local seenTitle=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); seenTitle:SetFont(FONT,11,"OUTLINE"); seenTitle:SetTextColor(unpack(Skin.text)); seenTitle:SetPoint("TOPLEFT",14,-42); seenTitle:SetText("Seen Buffs - click to track")
-    local trackedTitle=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); trackedTitle:SetFont(FONT,11,"OUTLINE"); trackedTitle:SetTextColor(unpack(Skin.text)); trackedTitle:SetPoint("TOPLEFT",14,-150); trackedTitle:SetText("Tracked Buffs - click to stop tracking")
+    for i=1,24 do local col=(i-1)%12; local row=math.floor((i-1)/12); seenBuffButtons[i]=Choice(14+col*40,-60-row*40); trackedBuffButtons[i]=Choice(14+col*40,-246-row*40) end
+    local seenTitle=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); seenTitle:SetFont(FONT,11,"OUTLINE"); seenTitle:SetTextColor(unpack(Skin.text)); seenTitle:SetPoint("TOPLEFT",14,-42); seenTitle:SetText("Seen Buffs - left-click to track, right-click to dismiss")
+    local trackedTitle=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); trackedTitle:SetFont(FONT,11,"OUTLINE"); trackedTitle:SetTextColor(unpack(Skin.text)); trackedTitle:SetPoint("TOPLEFT",14,-224); trackedTitle:SetText("Tracked Buffs - click to stop tracking")
     local close=MakeButton(trackedBuffWindow,"Back to Auras",120,24); close:SetPoint("BOTTOMLEFT",14,12); close:SetScript("OnClick",function() trackedBuffWindow:Hide(); config:Show() end)
     local clear=MakeButton(trackedBuffWindow,"Clear Seen History",130,24); clear:SetPoint("LEFT",close,"RIGHT",8,0); clear:SetScript("OnClick",function() if not InCombatLockdown() then ns.ClearSeenBuffs(); RefreshTrackedWindow() end end)
+    local reset=MakeButton(trackedBuffWindow,"Reset Dismissed",120,24); reset:SetPoint("LEFT",clear,"RIGHT",8,0)
+    reset:SetScript("OnClick",function() if not InCombatLockdown() then ns.ResetDismissedSeenBuffs(); RefreshTrackedWindow() end end)
+    local manualTitle=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); manualTitle:SetFont(FONT,11,"OUTLINE"); manualTitle:SetTextColor(unpack(Skin.text)); manualTitle:SetPoint("TOPLEFT",14,-144); manualTitle:SetText("Add by Spell ID")
+    local label=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); label:SetFont(FONT,11,"OUTLINE"); label:SetTextColor(unpack(Skin.text)); label:SetPoint("TOPLEFT",14,-170); label:SetText("Spell ID")
+    local input=CreateFrame("EditBox",nil,trackedBuffWindow,"InputBoxTemplate"); input:SetSize(130,24); input:SetPoint("TOPLEFT",76,-164); input:SetAutoFocus(false); input:SetMaxLetters(32); Skin.Edit(input)
+    local add=MakeButton(trackedBuffWindow,"Add",70,24); add:SetPoint("LEFT",input,"RIGHT",8,0)
+    local feedback=trackedBuffWindow:CreateFontString(nil,"OVERLAY"); feedback:SetFont(FONT,11,"OUTLINE"); feedback:SetTextColor(unpack(Skin.muted)); feedback:SetPoint("TOPLEFT",14,-194); feedback:SetWidth(580); feedback:SetHeight(24); feedback:SetJustifyH("LEFT")
+    local function Add()
+        local ok,message=AddTrackedSpellID(input:GetText())
+        if ok then input:SetText(""); input:ClearFocus(); RefreshTrackedWindow() end
+        feedback:SetText(message)
+    end
+    add:SetScript("OnClick",Add); input:SetScript("OnEnterPressed",Add); input:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
+    input:SetScript("OnTextChanged",function() feedback:SetText("") end)
     manageTrackedButton:SetScript("OnClick",function() RefreshTrackedWindow(); internalHide=true; config:Hide(); internalHide=false; trackedBuffWindow:Show() end)
 end
 

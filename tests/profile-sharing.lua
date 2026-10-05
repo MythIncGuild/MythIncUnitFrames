@@ -132,7 +132,10 @@ local function rejected(text)
     assert(not request and type(err)=="string",err or "accepted bad input")
     assert(current()==identity and equal(before,MythIncUnitFramesDB) and reloads==calls,"invalid import mutated state")
 end
+local dismissedHistory=MythIncUnitFramesDB.dismissedSeenBuffs
+dismissedHistory[10060]=true
 local baseline=assert(ns.ExportProfile())
+assert(serialized.settings.dismissedSeenBuffs==nil and serialized.dismissedSeenBuffs==nil)
 assert(not serialized.settings.trackedBuffs and not serialized.settings.locked)
 assert(serialized.settings.sizes.raid.width==120)
 local profile=current()
@@ -161,6 +164,7 @@ local seen=MythIncUnitFramesDB.seenBuffs; local seenContents=copy(seen); local v
 local request=assert(ns.PrepareProfileImport(exported)); assert(current()==destination) -- preparation/cancel is read-only
 assert(request.confirm(function() return true end)); assert(reloads==1)
 assert(current().trackedBuffs==tracked and equal(tracked,trackedContents))
+assert(MythIncUnitFramesDB.dismissedSeenBuffs==dismissedHistory and dismissedHistory[10060])
 assert(MythIncUnitFramesDB.profiles.Default==other and equal(other,otherContents))
 assert(MythIncUnitFramesDB.profileKeys==keys and equal(keys,keyContents))
 assert(MythIncUnitFramesDB.seenBuffs==seen and equal(seen,seenContents) and MythIncUnitFramesDB.version==version)

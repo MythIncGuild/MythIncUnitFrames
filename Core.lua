@@ -247,6 +247,7 @@ local function InitializeDatabase()
 
     if type(db.profileKeys) ~= "table" then db.profileKeys = {} end
     if type(db.seenBuffs) ~= "table" then db.seenBuffs = {} end
+    if type(db.dismissedSeenBuffs) ~= "table" then db.dismissedSeenBuffs = {} end
 
     local characterKey = GetCharacterKey()
     local active = db.profileKeys[characterKey]
@@ -482,6 +483,7 @@ function ns.RecordSeenBuff(spellID, name, icon)
     InitializeDatabase()
     local id = tonumber(spellID)
     if not id then return end
+    if MythIncUnitFramesDB.dismissedSeenBuffs[id] then return end
     local current = MythIncUnitFramesDB.seenBuffs[id]
     if type(current) ~= "table" then current = {}; MythIncUnitFramesDB.seenBuffs[id] = current end
     if name then current.name = name end
@@ -489,6 +491,16 @@ function ns.RecordSeenBuff(spellID, name, icon)
     current.lastSeen = time and time() or 0
 end
 function ns.ClearSeenBuffs() InitializeDatabase(); MythIncUnitFramesDB.seenBuffs = {} end
+function ns.DismissSeenBuff(spellID)
+    InitializeDatabase()
+    local id=tonumber(spellID)
+    if not id or id<=0 or id==math.huge or id~=math.floor(id) then return end
+    MythIncUnitFramesDB.seenBuffs[id]=nil
+    -- The picker accepts legacy string keys as well as numeric spell IDs.
+    MythIncUnitFramesDB.seenBuffs[tostring(id)]=nil
+    MythIncUnitFramesDB.dismissedSeenBuffs[id]=true
+end
+function ns.ResetDismissedSeenBuffs() InitializeDatabase(); MythIncUnitFramesDB.dismissedSeenBuffs={} end
 
 function ns.AreFrameMoversLocked() local profile = ActiveProfile(); return profile.frameLocked end
 function ns.SetFrameMoversLockedState(locked) local profile = ActiveProfile(); profile.frameLocked = locked and true or false end

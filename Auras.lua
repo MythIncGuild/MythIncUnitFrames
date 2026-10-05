@@ -8,7 +8,7 @@ local FLAT = "Interface\\Buttons\\WHITE8x8"
 local FONT = "Fonts\\FRIZQT__.TTF"
 local AURA_LABELS = { buffs = "Buffs", debuffs = "Debuffs", defensives = "Defensives" }
 local AURA_TYPES = {
-    buffs = { groups = { { key = "buffs", filter = "HELPFUL|PLAYER" } } },
+    buffs = { groups = { { key = "buffs", filter = "HELPFUL" } } },
     debuffs = { groups = { { key = "debuffs", filter = "HARMFUL" } } },
     defensives = { groups = {
         { key = "defensivesBig", filter = "HELPFUL|BIG_DEFENSIVE" },
@@ -130,7 +130,8 @@ local function ApplyBuffFiltering(frame, layout, refreshCandidates)
     local enabled = not layout or layout.filteringEnabled ~= false
     if data.buffFilteringEnabled == enabled and not refreshCandidates then return end
     -- Reconfigure the existing native group; keep its pool, unit and events.
-    data.container:SetAuraGroupFilterString("buffs", enabled and "HELPFUL|PLAYER" or "HELPFUL")
+    -- Explicit tracked IDs select helpful auras regardless of their caster.
+    data.container:SetAuraGroupFilterString("buffs", "HELPFUL")
     data.container:SetAuraGroupCandidateFilters("buffs", BuildCandidateFilters("buffs", frame.MIUF_UnitType, layout))
     data.buffFilteringEnabled = enabled
 end
